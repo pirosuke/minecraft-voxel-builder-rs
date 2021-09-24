@@ -10,7 +10,7 @@ mod minecraft;
 use minecraft::command::*;
 
 mod magicavoxel;
-use magicavoxel::minecraft::{MinecraftVox, load_vox_from_file};
+use magicavoxel::minecraft::{MinecraftVox, MinecraftBlockInfo, load_vox_from_file};
 
 struct Location {
     x: u32,
@@ -18,24 +18,52 @@ struct Location {
     z: u32,
 }
 
-fn build_voxel(sender: &Sender, file_name: String, base_location: &Location) {
+fn build_voxel(sender: &Sender, file_name: String, base_location: &Location, direction: &str) {
     println!("build_voxel start");
     let config_dir_path = config_dir().unwrap().join("minecraft-builder-rs");
     let file_path = config_dir_path.join("vox").join(format!("{}.vox", file_name));
     let palette_file_path = config_dir_path.join("palette.json");
     if file_path.exists() && palette_file_path.exists() {
         println!("file_path found");
-        let voxel_list: Vec<MinecraftVox> = load_vox_from_file(&file_path.to_str().unwrap(), palette_file_path.to_str().unwrap());
+        let vox: MinecraftVox = load_vox_from_file(&file_path.to_str().unwrap(), palette_file_path.to_str().unwrap());
+        let voxel_list: Vec<MinecraftBlockInfo> = vox.blocks;
+
         for voxel in voxel_list {
             println!("{:?}", voxel);
-            let x = base_location.x + voxel.y;
-            let y = base_location.y + voxel.z;
-            let z = base_location.z + voxel.x;
-            println!("{},{},{}", x, y, z);
+            let mut block_location = Location{
+                x: base_location.x,
+                y: base_location.y,
+                z: base_location.z,
+            };
+
+            match direction.trim() {
+                "w" => {
+                    block_location.x += voxel.x;
+                    block_location.y += voxel.z;
+                    block_location.z += vox.size.x - voxel.y;
+                },
+                "e" => {
+                    block_location.x += vox.size.y - voxel.x;
+                    block_location.y += voxel.z;
+                    block_location.z += voxel.y;
+                },
+                "s" => {
+                    block_location.x += vox.size.y - voxel.y;
+                    block_location.y += voxel.z;
+                    block_location.z += vox.size.x - voxel.x;
+                },
+                "n" | "" | _ => {
+                    block_location.x += voxel.y;
+                    block_location.y += voxel.z;
+                    block_location.z += voxel.x;
+                }
+            }
+            println!("{},{},{}", block_location.x, block_location.y, block_location.z);
+
             let command = create_set_block_command(
-                x,
-                y,
-                z,
+                block_location.x,
+                block_location.y,
+                block_location.z,
                 voxel.block_type, 
                 "replace".to_owned(),
             );
@@ -48,7 +76,7 @@ fn build_voxel(sender: &Sender, file_name: String, base_location: &Location) {
 
 fn parse_and_exec_command(sender: Sender, command_message: String) {
     // parse with regexp
-    let build_re = Regex::new(r"^build ([^ ]+) (\d+),(\d+),(\d+)").unwrap();
+    let build_re = Regex::new(r"^build ([^ ]+) (\d+),(\d+),(\d+)( *[a-z]*)").unwrap();
     if build_re.is_match(&command_message) {
         let caps = build_re.captures(&command_message).unwrap();
         let voxel_name = caps.get(1).unwrap().as_str().to_owned();
@@ -57,7 +85,8 @@ fn parse_and_exec_command(sender: Sender, command_message: String) {
             y: caps.get(3).unwrap().as_str().to_owned().parse::<u32>().unwrap(),
             z: caps.get(4).unwrap().as_str().to_owned().parse::<u32>().unwrap(),
         };
-        build_voxel(&sender, voxel_name, &location);
+        let direction = caps.get(5).unwrap().as_str();
+        build_voxel(&sender, voxel_name, &location, direction);
     }
 }
 
